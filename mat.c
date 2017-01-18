@@ -1,3 +1,8 @@
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+
 #include "util/session.h"
 #include "util/evlist.h"
 #include "util/values.h"
@@ -13,6 +18,18 @@ const char perf_version_string[] = "";
 volatile int written_so_far;
 volatile int read_so_far;
 /*******************************************************************************************/
+
+static char* make_uniq_path(void){
+  char* ret = (char*)malloc(sizeof(char) * 64);
+  int fd;
+  
+  sprintf(ret, "/dev/shm/XXXXXX");
+  fd = mkstemp(ret);
+
+  close(fd); // close the file immediately, so that the following processes can open it
+
+  return ret;
+}
 
 /** stuff related to do_record *************************************************************/
 // default target, when -pid is not specified (, which this program assumes)
@@ -171,11 +188,40 @@ static int perf_record_config(const char *var, const char *value, void *cb)
 
 static void* observer(void* arg __attribute__((unused))){
   int written_prev = 0;
+  struct record *rec = &record;
+  int fd_in = rec->file.fd; // the file to which the recorder is writing the recorded data
 
+  printf("rec->file.fd: %d\n", rec->file.fd);
+  
   for(;;){
     if(written_so_far > written_prev){
+      int fd_out, ret;
+      char* filename;
+      void* mem_in;
+
+      mem_in = mmap(NULL, written_so_far, PROT_READ, MAP_PRIVATE, fd_in, 0);
+      if(mem_in ==  MAP_FAILED){
+	perror("mmap(NULL, written_so_far, PROT_READ, MAP_PRIVATE, fd_in, 0)");
+      }
+
       printf("bytes written so far: %d\n", written_so_far);
-      printf("let's process this data!");
+
+      filename = make_uniq_path();
+      fd_out = open(filename, O_RDWR);
+
+      // write the header
+      perf_session__write_header(rec->session, rec->evlist, fd_out, false);
+
+      // write the data
+      ret = write(fd_out, mem_in, written_so_far - written_prev);
+      if(ret < written_so_far - written_prev){
+	perror("write(fd_out, mem_in, written_so_far - written_prev)");
+      }
+
+      // done
+      printf("Saved the data into %s\n", filename);
+      close(fd_out);
+      munmap(mem_in, written_so_far);
     }
 
     written_prev = written_so_far;
@@ -200,18 +246,6 @@ static void init(void){
 
   // create observer
   pthread_create(&tid_observer, NULL, observer, NULL);
-}
-
-static char* make_uniq_path(void){
-  char* ret = (char*)malloc(sizeof(char) * 64);
-  int fd;
-  
-  sprintf(ret, "/dev/shm/XXXXXX");
-  fd = mkstemp(ret);
-
-  close(fd); // close the file immediately, so that the following processes can open it
-
-  return ret;
 }
 
 static int do_record(const char* path){
