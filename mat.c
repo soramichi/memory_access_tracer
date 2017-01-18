@@ -4,10 +4,10 @@
 #include "util/parse-events.h"
 #include "cache.h"
 
-// dirt hack. those variables are never used in test.c but
+// dirt hack. those variables are never used in mat.c but
 // required by libperf.a (should be removed from perf.c)
 int use_browser = -1;
-const char perf_version_string[] = "hoge";
+const char perf_version_string[] = "";
 
 /** stuff related to do_record *************************************************************/
 // default target, when -pid is not specified (, which this program assumes)
@@ -176,17 +176,32 @@ static void init(void){
   signal(SIGTERM, sig_handler);
 }
 
-static int do_record(void){
+static char* make_uniq_path(void){
+  char* ret = (char*)malloc(sizeof(char) * 64);
+  int fd;
+  
+  sprintf(ret, "/dev/shm/XXXXXX");
+  fd = mkstemp(ret);
+
+  close(fd); // close the file immediately, so that the following processes can open it
+
+  return ret;
+}
+
+static int do_record(const char* path){
   struct perf_evsel* pos;
   const char* argv[] = {"./cache_miss", NULL}; 
   int exit_status, ret;
   char msg[512];
   struct perf_session *session;
   struct record *rec = &record;
+
+  // setup filepath for the output
+  rec->file.path = path;
   
   // create boxes for the counters
   rec->evlist = perf_evlist__new();
-  
+
   // load and apply default config
   perf_config(perf_record_config, rec);
   record_opts__config(&rec->opts);
@@ -308,17 +323,6 @@ struct report {
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
 };
 
-
-#define MAKE_DUMMY_TOOL(name) static int name(struct perf_tool *tool __attribute__((unused)), \
-					      union perf_event *event __attribute__((unused)), \
-					      struct perf_sample *sample __attribute__((unused)), \
-					      struct perf_evsel *evsel __attribute__((unused)),	\
-					      struct machine *machine __attribute__((unused))){ \
-    printf("%s is called\n", #name);						\
-    return 0; }								\
-
-MAKE_DUMMY_TOOL(process_read_event)
-
 static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
 				union perf_event *event  __attribute__((unused)),
 				struct perf_sample *sample,
@@ -338,16 +342,6 @@ static int do_report(const char* filename){
   struct report report = {
     .tool = {
       .sample		 = process_sample_event,
-      .mmap		 = perf_event__process_mmap,
-      .mmap2		 = perf_event__process_mmap2,
-      .comm		 = perf_event__process_comm,
-      .exit		 = perf_event__process_exit,
-      .fork		 = perf_event__process_fork,
-      .lost		 = perf_event__process_lost,
-      .read		 = process_read_event,
-      .attr		 = perf_event__process_attr,
-      .tracing_data	 = perf_event__process_tracing_data,
-      .build_id	 = perf_event__process_build_id,
       .ordered_samples = true,
       .ordering_requires_timestamps = true,
     },
@@ -368,9 +362,6 @@ static int do_report(const char* filename){
   session = perf_session__new(&file, false, &report.tool);
   report.session = session;
 
-  // do not use the browser
-  use_browser = 0;
-
   /** Example output:
      # ========
      # captured on: Tue Jan 17 12:18:22 2017
@@ -384,34 +375,12 @@ static int do_report(const char* filename){
   return 0;
 }
 
-static void test_usage(const char* comm){
-  fprintf(stderr, "usage: %s [report|record]\n", comm);
-}
+int main(void){
+  char* path = make_uniq_path();
 
-int main(int argc, char* argv[]){
-  const char *cmd;
-
-  if(argc < 2){
-    // default
-    cmd = "report";
-  }
-  else{
-    cmd = argv[1];
-  }
-
-  printf("cmd: %s\n", cmd);
-  
+  // should be done before calling any function in libperf.a
   init();
 
-  if(!strcmp(cmd, "record")){
-    // record some counters
-    do_record();
-  }
-  else if(!strcmp(cmd, "report")){
-    // report the result
-    do_report("perf.data");
-  }
-  else{
-    test_usage(argv[0]);
-  }
+  do_record(path);
+  do_report(path);
 }
