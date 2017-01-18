@@ -1,0 +1,417 @@
+#include "util/session.h"
+#include "util/evlist.h"
+#include "util/values.h"
+#include "util/parse-events.h"
+#include "cache.h"
+
+// dirt hack. those variables are never used in test.c but
+// required by libperf.a (should be removed from perf.c)
+int use_browser = -1;
+const char perf_version_string[] = "hoge";
+
+/** stuff related to do_record *************************************************************/
+// default target, when -pid is not specified (, which this program assumes)
+struct target unused_target = {NULL, NULL, NULL, NULL, -1, 0, 1, 1, 0};
+
+// copy-pasted from builin-record.
+static volatile int workload_exec_errno;
+static volatile int done = 0;
+static volatile int signr = -1;
+static volatile int child_finished = 0;
+static void workload_exec_failed_signal(int signo __maybe_unused,
+					siginfo_t *info,
+					void *ucontext __maybe_unused)
+{
+	workload_exec_errno = info->si_value.sival_int;
+	done = 1;
+	child_finished = 1;
+}
+
+/** struct record ********************************************************/
+struct record {
+	struct perf_tool	tool;
+	struct record_opts	opts;
+	u64			bytes_written;
+	struct perf_data_file	file;
+	struct perf_evlist	*evlist;
+	struct perf_session	*session;
+	const char		*progname;
+	int			realtime_prio;
+	bool			no_buildid;
+	bool			no_buildid_cache;
+	long			samples;
+};
+
+// should be global, which is what builtin-record says :(
+static struct record record = {
+	.opts = {
+		.mmap_pages	     = UINT_MAX,
+		.user_freq	     = UINT_MAX,
+		.user_interval	     = ULLONG_MAX,
+		.freq		     = 4000,
+		.target		     = {
+			.uses_mmap   = true,
+			.default_per_cpu = true,
+		},
+	},
+};
+/*************************************************************************/
+
+static void sig_handler(int sig)
+{
+	if (sig == SIGCHLD)
+		child_finished = 1;
+	else
+		signr = sig;
+
+	done = 1;
+}
+
+static void record__sig_exit(void)
+{
+	if (signr == -1)
+		return;
+
+	signal(signr, SIG_DFL);
+	raise(signr);
+}
+
+// copy-pasted from builtin-record.c
+static int record__write(struct record *rec, void *bf, size_t size){
+  if (perf_data_file__write(rec->session->file, bf, size) < 0) {
+    pr_err("failed to write perf data, error: %m\n");
+    return -1;
+  }
+
+  rec->bytes_written += size;
+  return 0;
+}
+
+// copy-pasted from builtin-record.c
+static int record__mmap_read(struct record* rec, struct perf_mmap *md)
+{
+	unsigned int head = perf_mmap__read_head(md);
+	unsigned int old = md->prev;
+	unsigned char *data = md->base + page_size;
+	unsigned long size;
+	void *buf;
+	int rc = 0;
+	
+	if (old == head){
+	  return 0;
+	}
+
+	rec->samples++;
+
+	size = head - old;
+
+	if ((old & md->mask) + size != (head & md->mask)) {
+		buf = &data[old & md->mask];
+		size = md->mask + 1 - (old & md->mask);
+		old += size;
+
+		if (record__write(rec, buf, size) < 0) {
+			rc = -1;
+			goto out;
+		}
+	}
+
+	buf = &data[old & md->mask];
+	size = head - old;
+	old += size;
+
+	if (record__write(rec, buf, size) < 0) {
+		rc = -1;
+		goto out;
+	}
+
+	md->prev = old;
+	perf_mmap__write_tail(md, old);
+
+out:
+	return rc;
+}
+
+// copy-pasted from builtin-record.c
+static struct perf_event_header finished_round_event = {
+	.size = sizeof(struct perf_event_header),
+	.type = PERF_RECORD_FINISHED_ROUND,
+};
+
+// (almost) copy-pasted from builtin-record.c
+static int record__mmap_read_all(struct record* rec){
+  int ret = 0;
+  int i;
+  
+  for(i=0; i<rec->evlist->nr_mmaps; i++){
+    if (rec->evlist->mmap[i].base){ // when .base becames 0? isn't it an error??
+      ret = record__mmap_read(rec, &rec->evlist->mmap[i]);
+      if(ret != 0)
+	return -1;
+    }
+  }
+
+  printf("samples:%ld\n", rec->samples);
+  
+  if (perf_header__has_feat(&rec->session->header, HEADER_TRACING_DATA))
+    ret = record__write(rec, &finished_round_event, sizeof(finished_round_event));
+
+  return ret;
+}
+
+static int perf_record_config(const char *var, const char *value, void *cb)
+{
+	return perf_default_config(var, value, cb);
+}
+
+
+static void init(void){
+  // resides in util.o
+  page_size = sysconf(_SC_PAGE_SIZE);
+
+  // singal handling to a child process to work as intended
+  atexit(record__sig_exit);
+  signal(SIGCHLD, sig_handler);
+  signal(SIGINT, sig_handler);
+  signal(SIGTERM, sig_handler);
+}
+
+static int do_record(void){
+  struct perf_evsel* pos;
+  const char* argv[] = {"./cache_miss", NULL}; 
+  int exit_status, ret;
+  char msg[512];
+  struct perf_session *session;
+  struct record *rec = &record;
+  
+  // create boxes for the counters
+  rec->evlist = perf_evlist__new();
+  
+  // load and apply default config
+  perf_config(perf_record_config, rec);
+  record_opts__config(&rec->opts);
+
+  // add additinal options
+  rec->opts.sample_address = true; // sample linear address from PEBS
+  
+  // create a new session
+  session = perf_session__new(&rec->file, false, NULL);
+  rec->session = session;
+  
+  // set counters
+  //parse_events(rec->evlist, "cache-misses:pp");
+  parse_events(rec->evlist, "r81D0:pp");
+  perf_evlist__create_maps(rec->evlist, &unused_target);
+
+  // prepare workload
+  perf_evlist__prepare_workload(rec->evlist, &unused_target, argv, false, workload_exec_failed_signal);
+
+  /** record__open (builtin-record.c) ***************************************/
+  perf_evlist__config(rec->evlist, &rec->opts);
+  evlist__for_each(rec->evlist, pos) {
+    ret = perf_evsel__open(pos, rec->evlist->cpus, rec->evlist->threads);
+    if(ret < 0){
+      perf_evsel__open_strerror(pos, NULL, errno, msg, sizeof(msg));
+      fprintf(stderr, "%s\n", msg);
+      return -1;
+    }
+  }
+  session->evlist = rec->evlist;
+  perf_session__set_id_hdr_size(session);
+  /**************************************************************************/
+
+  /*
+  printf("PERF_SAMPLE_DATA_SRC: %d\n", PERF_SAMPLE_DATA_SRC);
+  printf("PERF_RECORD_HEADER_MAX: %d\n", PERF_RECORD_HEADER_MAX);
+  */
+
+  // set PERF_SAMPLE_ADDR to all counters
+  //evlist__for_each(rec->evlist, pos) {
+    //printf("pos->attr.sample_type: %llu\n", pos->attr.sample_type);
+    //pos->attr.sample_type |= PERF_SAMPLE_ADDR;
+  //}
+  
+  // mmap actual counters into some memory region.
+  // always specify UINT_MAX for the second 
+  ret = perf_evlist__mmap(rec->evlist, UINT_MAX, false);
+  if(ret < 0)
+    return -1;
+
+  // now that evlist is ready for use
+  printf("evlist->nr_fds: %d\n", rec->evlist->nr_fds);
+  printf("evlist->nr_mmaps: %d\n", rec->evlist->nr_mmaps);
+  printf("rec->file.path: %s\n", rec->file.path);
+  printf("rec->file.fd: %d\n", rec->file.fd);
+
+  // run the workload
+  perf_evlist__start_workload(rec->evlist);
+
+  // enable the counters (?)
+  perf_evlist__enable(rec->evlist);
+  
+  // write the magic number to the output file
+  perf_session__write_header(session, rec->evlist, rec->file.fd, false);
+  
+  // read the counters
+  for(;;){
+    int hits = rec->samples;
+
+    record__mmap_read_all(rec);
+    
+    if (hits == rec->samples){ // means `reacord__mmap_read_all' didn't read anything, so we poll
+      ret = poll(rec->evlist->pollfd, rec->evlist->nr_fds, -1);
+      printf("poll(2) returned with %d\n", ret);
+      if(ret < 0)
+	break;
+    }
+  }
+
+  // read once again after the workload finishes
+  record__mmap_read_all(rec);
+  
+  // wait for the workload to finish
+  wait(&exit_status);
+
+  // disable the events
+  perf_evlist__disable(rec->evlist);
+  
+  // overwrite the header with the actually written size
+  printf("rec->bytes_written: %lu\n", rec->bytes_written);
+  rec->session->header.data_size += rec->bytes_written;
+  perf_session__write_header(rec->session, rec->evlist, rec->file.fd, true);
+  
+  return 0;
+}
+
+
+/** stuff related to do_report *************************************************************/
+// should be placed before "container_of", as it uses this type inside
+struct report {
+	struct perf_tool	tool;
+	struct perf_session	*session;
+	bool			force, use_tui, use_gtk, use_stdio;
+	bool			hide_unresolved;
+	bool			dont_use_callchains;
+	bool			show_full_info;
+	bool			show_threads;
+	bool			inverted_callchain;
+	bool			mem_mode;
+	bool			header;
+	bool			header_only;
+	int			max_stack;
+	struct perf_read_values	show_threads_values;
+	const char		*pretty_printing_style;
+	const char		*cpu_list;
+	const char		*symbol_filter_str;
+	float			min_percent;
+	u64			nr_entries;
+	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
+};
+
+
+#define MAKE_DUMMY_TOOL(name) static int name(struct perf_tool *tool __attribute__((unused)), \
+					      union perf_event *event __attribute__((unused)), \
+					      struct perf_sample *sample __attribute__((unused)), \
+					      struct perf_evsel *evsel __attribute__((unused)),	\
+					      struct machine *machine __attribute__((unused))){ \
+    printf("%s is called\n", #name);						\
+    return 0; }								\
+
+MAKE_DUMMY_TOOL(process_read_event)
+
+static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
+				union perf_event *event  __attribute__((unused)),
+				struct perf_sample *sample,
+				struct perf_evsel *evsel  __attribute__((unused)),
+				struct machine *machine  __attribute__((unused))){
+  printf("ip: 0x%lx, addr: 0x%lx\n", sample->ip, sample->addr);
+
+  return 0;
+}
+
+static int report__config(const char *var, const char *value, void *cb){
+  return perf_default_config(var, value, cb);
+}
+
+static int do_report(const char* filename){
+  struct perf_session *session;
+  struct report report = {
+    .tool = {
+      .sample		 = process_sample_event,
+      .mmap		 = perf_event__process_mmap,
+      .mmap2		 = perf_event__process_mmap2,
+      .comm		 = perf_event__process_comm,
+      .exit		 = perf_event__process_exit,
+      .fork		 = perf_event__process_fork,
+      .lost		 = perf_event__process_lost,
+      .read		 = process_read_event,
+      .attr		 = perf_event__process_attr,
+      .tracing_data	 = perf_event__process_tracing_data,
+      .build_id	 = perf_event__process_build_id,
+      .ordered_samples = true,
+      .ordering_requires_timestamps = true,
+    },
+    .max_stack		 = PERF_MAX_STACK_DEPTH,
+    .pretty_printing_style	 = "normal",
+  };
+  struct perf_data_file file = {
+    .mode  = PERF_DATA_MODE_READ,
+  };
+
+  printf("do_report: %s\n", filename);
+  
+  perf_config(report__config, &report);
+  
+  file.path  = filename;
+  file.force = report.force;
+
+  session = perf_session__new(&file, false, &report.tool);
+  report.session = session;
+
+  // do not use the browser
+  use_browser = 0;
+
+  /** Example output:
+     # ========
+     # captured on: Tue Jan 17 12:18:22 2017
+     # ========
+     #
+   **/
+  perf_session__fprintf_info(session, stdout, report.show_full_info);
+
+  perf_session__process_events(session, &report.tool);
+
+  return 0;
+}
+
+static void test_usage(const char* comm){
+  fprintf(stderr, "usage: %s [report|record]\n", comm);
+}
+
+int main(int argc, char* argv[]){
+  const char *cmd;
+
+  if(argc < 2){
+    // default
+    cmd = "report";
+  }
+  else{
+    cmd = argv[1];
+  }
+
+  printf("cmd: %s\n", cmd);
+  
+  init();
+
+  if(!strcmp(cmd, "record")){
+    // record some counters
+    do_record();
+  }
+  else if(!strcmp(cmd, "report")){
+    // report the result
+    do_report("perf.data");
+  }
+  else{
+    test_usage(argv[0]);
+  }
+}
