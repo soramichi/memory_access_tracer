@@ -235,17 +235,6 @@ static int do_record(const char* path){
   perf_session__set_id_hdr_size(session);
   /**************************************************************************/
 
-  /*
-  printf("PERF_SAMPLE_DATA_SRC: %d\n", PERF_SAMPLE_DATA_SRC);
-  printf("PERF_RECORD_HEADER_MAX: %d\n", PERF_RECORD_HEADER_MAX);
-  */
-
-  // set PERF_SAMPLE_ADDR to all counters
-  //evlist__for_each(rec->evlist, pos) {
-    //printf("pos->attr.sample_type: %llu\n", pos->attr.sample_type);
-    //pos->attr.sample_type |= PERF_SAMPLE_ADDR;
-  //}
-  
   // mmap actual counters into some memory region.
   // always specify UINT_MAX for the second 
   ret = perf_evlist__mmap(rec->evlist, UINT_MAX, false);
