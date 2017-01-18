@@ -9,6 +9,11 @@
 int use_browser = -1;
 const char perf_version_string[] = "";
 
+/** shared variable ************************************************************************/
+volatile int written_so_far;
+volatile int read_so_far;
+/*******************************************************************************************/
+
 /** stuff related to do_record *************************************************************/
 // default target, when -pid is not specified (, which this program assumes)
 struct target unused_target = {NULL, NULL, NULL, NULL, -1, 0, 1, 1, 0};
@@ -164,8 +169,26 @@ static int perf_record_config(const char *var, const char *value, void *cb)
 	return perf_default_config(var, value, cb);
 }
 
+static void* observer(void* arg __attribute__((unused))){
+  int written_prev = 0;
+
+  for(;;){
+    if(written_so_far > written_prev){
+      printf("bytes written so far: %d\n", written_so_far);
+      printf("let's process this data!");
+    }
+
+    written_prev = written_so_far;
+
+    usleep(100 * 1000); // wait 500 msec
+  }
+
+  return NULL;
+}
 
 static void init(void){
+  pthread_t tid_observer;
+  
   // resides in util.o
   page_size = sysconf(_SC_PAGE_SIZE);
 
@@ -174,6 +197,9 @@ static void init(void){
   signal(SIGCHLD, sig_handler);
   signal(SIGINT, sig_handler);
   signal(SIGTERM, sig_handler);
+
+  // create observer
+  pthread_create(&tid_observer, NULL, observer, NULL);
 }
 
 static char* make_uniq_path(void){
@@ -261,7 +287,8 @@ static int do_record(const char* path){
     int hits = rec->samples;
 
     record__mmap_read_all(rec);
-    
+    written_so_far = rec->bytes_written;
+
     if (hits == rec->samples){ // means `reacord__mmap_read_all' didn't read anything, so we poll
       ret = poll(rec->evlist->pollfd, rec->evlist->nr_fds, -1);
       printf("poll(2) returned with %d\n", ret);
@@ -286,7 +313,6 @@ static int do_record(const char* path){
   
   return 0;
 }
-
 
 /** stuff related to do_report *************************************************************/
 // should be placed before "container_of", as it uses this type inside
@@ -369,7 +395,7 @@ int main(void){
 
   // should be done before calling any function in libperf.a
   init();
-
+  
   do_record(path);
-  do_report(path);
+  //do_report(path);
 }
