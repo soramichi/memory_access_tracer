@@ -186,75 +186,6 @@ static int perf_record_config(const char *var, const char *value, void *cb)
 	return perf_default_config(var, value, cb);
 }
 
-static void* observer(void* arg __attribute__((unused))){
-  int written_prev = 0;
-  struct record *rec = &record;
-  
-  for(;;){
-    if(written_so_far > written_prev){
-      int fd_out, ret;
-      char* filename;
-      void* mem_in;
-      volatile int header_data_size_old;
-
-      // the file to which the recorder is writing the recorded data
-      // cannot be moved outside of for(;;) because rec might not be initizlied then
-      volatile int fd_in = rec->file.fd;
- 
-      printf("rec->file.fd: %d\n", rec->file.fd);
-      printf("mmap(NULL, %d, PROT_READ, MAP_PRIVATE, %d, 0)\n", written_so_far, fd_in);
-      mem_in = mmap(NULL, written_so_far, PROT_READ, MAP_PRIVATE, fd_in, 0);
-      if(mem_in ==  MAP_FAILED){
-	perror("mmap(NULL, written_so_far, PROT_READ, MAP_PRIVATE, fd_in, 0)");
-      }
-
-      printf("bytes written so far: %d\n", written_so_far);
-
-      filename = make_uniq_path();
-      fd_out = open(filename, O_RDWR);
-
-      // write the header
-      header_data_size_old = rec->session->header.data_size;
-      rec->session->header.data_size = written_so_far - written_prev;
-      perf_session__write_header(rec->session, rec->evlist, fd_out, false);
-      rec->session->header.data_size = header_data_size_old;
-      
-      // write the data
-      ret = write(fd_out, mem_in + written_prev, written_so_far - written_prev);
-      if(ret < written_so_far - written_prev){
-	perror("write(fd_out, mem_in, written_so_far - written_prev)");
-      }
-
-      // done
-      printf("Saved the data into %s\n", filename);
-      close(fd_out);
-      munmap(mem_in, written_so_far);
-    }
-
-    written_prev = written_so_far;
-
-    usleep(100 * 1000); // wait 500 msec
-  }
-
-  return NULL;
-}
-
-static void init(void){
-  pthread_t tid_observer;
-  
-  // resides in util.o
-  page_size = sysconf(_SC_PAGE_SIZE);
-
-  // singal handling to a child process to work as intended
-  atexit(record__sig_exit);
-  signal(SIGCHLD, sig_handler);
-  signal(SIGINT, sig_handler);
-  signal(SIGTERM, sig_handler);
-
-  // create observer
-  pthread_create(&tid_observer, NULL, observer, NULL);
-}
-
 static int do_record(const char* path){
   struct perf_evsel* pos;
   const char* argv[] = {"./cache_miss", NULL}; 
@@ -377,15 +308,20 @@ struct report {
 	float			min_percent;
 	u64			nr_entries;
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
+        int n_samples;
 };
 
 static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
 				union perf_event *event  __attribute__((unused)),
-				struct perf_sample *sample,
+				struct perf_sample *sample __attribute__((unused)),
 				struct perf_evsel *evsel  __attribute__((unused)),
 				struct machine *machine  __attribute__((unused))){
-  printf("ip: 0x%lx, addr: 0x%lx\n", sample->ip, sample->addr);
 
+  struct report* rec = container_of(tool, struct report, tool);
+  //printf("ip: 0x%lx, addr: 0x%lx\n", sample->ip, sample->addr);
+
+  rec->n_samples++;
+  
   return 0;
 }
 
@@ -403,6 +339,7 @@ static int do_report(const char* filename){
     },
     .max_stack		 = PERF_MAX_STACK_DEPTH,
     .pretty_printing_style	 = "normal",
+    .n_samples = 0
   };
   struct perf_data_file file = {
     .mode  = PERF_DATA_MODE_READ,
@@ -424,11 +361,98 @@ static int do_report(const char* filename){
      # ========
      #
    **/
-  perf_session__fprintf_info(session, stdout, report.show_full_info);
+  //perf_session__fprintf_info(session, stdout, report.show_full_info);
 
   perf_session__process_events(session, &report.tool);
 
+  printf("this piece contains %d samples\n", report.n_samples);
+  
   return 0;
+}
+
+/** things not copy-pasted from perf source codes (that means my own logics) *****/
+static void* observer(void* arg __attribute__((unused))){
+  int written_prev = 0;
+  struct record *rec = &record;
+  
+  for(;;){
+    volatile int written_so_far_local = written_so_far;
+
+    if(written_so_far_local > written_prev){
+      int fd_out, ret;
+      char* filename;
+      void* mem_in;
+      volatile int header_data_size_old;
+
+      // the file to which the recorder is writing the recorded data
+      // cannot be moved outside of for(;;) because rec might not be initizlied then
+      volatile int fd_in = rec->file.fd;
+ 
+      printf("rec->file.fd: %d\n", rec->file.fd);
+      printf("mmap(NULL, %d, PROT_READ, MAP_PRIVATE, %d, 0)\n", written_so_far_local, fd_in);
+      mem_in = mmap(NULL, written_so_far_local, PROT_READ, MAP_PRIVATE, fd_in, 0);
+      if(mem_in ==  MAP_FAILED){
+	perror("mmap(NULL, written_so_far_local, PROT_READ, MAP_PRIVATE, fd_in, 0)");
+      }
+
+      printf("bytes written so far: %d\n", written_so_far_local);
+
+      filename = make_uniq_path();
+      fd_out = open(filename, O_RDWR);
+
+      // write the header, header.data_size is not yet written?
+      perf_session__write_header(rec->session, rec->evlist, fd_out, false);
+
+      printf("header->data_offset: %lu\n", rec->session->header.data_offset);
+      
+      // write the data
+      ret = write(fd_out,
+		  mem_in +  rec->session->header.data_offset + written_prev,
+		  written_so_far_local - written_prev);
+      if(ret < written_so_far_local - written_prev){
+	perror("write(fd_out, mem_in, written_so_far_local - written_prev)");
+      }
+
+      // write the header *again*: needed as perf_session__write_header
+      // does something different when the 4th argument is true
+      // (this mode is supposed to be used after all data is written)
+      // !!!!!! assiging to rec->session->* is a very bad idea,
+      // !!!!!!  which 100000000% surely will cause timing issues
+      header_data_size_old = rec->session->header.data_size;
+      rec->session->header.data_size = written_so_far_local - written_prev;
+      perf_session__write_header(rec->session, rec->evlist, fd_out, true);
+      rec->session->header.data_size = header_data_size_old;
+
+      // done
+      printf("Saved the %lu bytes of data into %s\n", rec->session->header.data_offset + written_so_far_local - written_prev, filename);
+      close(fd_out);
+      munmap(mem_in, written_so_far_local);
+      
+      written_prev = written_so_far_local;
+
+      do_report(filename);
+    }
+
+    usleep(100 * 1000); // wait 500 msec
+  }
+
+  return NULL;
+}
+
+static void init(void){
+  pthread_t tid_observer;
+  
+  // resides in util.o
+  page_size = sysconf(_SC_PAGE_SIZE);
+
+  // singal handling to a child process to work as intended
+  atexit(record__sig_exit);
+  signal(SIGCHLD, sig_handler);
+  signal(SIGINT, sig_handler);
+  signal(SIGTERM, sig_handler);
+
+  // create observer
+  pthread_create(&tid_observer, NULL, observer, NULL);
 }
 
 int main(void){
