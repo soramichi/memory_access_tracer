@@ -9,6 +9,9 @@
 #include "util/parse-events.h"
 #include "cache.h"
 
+#include "hash.h"
+#include "vector.h"
+
 // dirt hack. those variables are never used in mat.c but
 // required by libperf.a (should be removed from perf.c)
 int use_browser = -1;
@@ -193,7 +196,7 @@ static int do_record(const char* path){
   char msg[512];
   struct perf_session *session;
   struct record *rec = &record;
-
+  
   // setup filepath for the output
   rec->file.path = path;
   
@@ -308,19 +311,29 @@ struct report {
 	float			min_percent;
 	u64			nr_entries;
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
-        int n_samples;
+        // members blow here are added by soramichi
+        int                     n_samples;
+        void                    *address_to_count;
+        void                    *addresses;
 };
 
 static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
 				union perf_event *event  __attribute__((unused)),
-				struct perf_sample *sample __attribute__((unused)),
+				struct perf_sample *sample,
 				struct perf_evsel *evsel  __attribute__((unused)),
 				struct machine *machine  __attribute__((unused))){
 
   struct report* rec = container_of(tool, struct report, tool);
+  int count;
   //printf("ip: 0x%lx, addr: 0x%lx\n", sample->ip, sample->addr);
 
   rec->n_samples++;
+  
+  count = get_from_hash(rec->address_to_count, sample->addr);
+  if(count == 0){ // this is the first acccess to this address
+    add_to_vector(rec->addresses, sample->addr);
+  }
+  add_to_hash(rec->address_to_count, sample->addr, count + 1);
   
   return 0;
 }
@@ -339,7 +352,7 @@ static int do_report(const char* filename){
     },
     .max_stack		 = PERF_MAX_STACK_DEPTH,
     .pretty_printing_style	 = "normal",
-    .n_samples = 0
+    .n_samples = 0,
   };
   struct perf_data_file file = {
     .mode  = PERF_DATA_MODE_READ,
@@ -354,7 +367,9 @@ static int do_report(const char* filename){
 
   session = perf_session__new(&file, false, &report.tool);
   report.session = session;
-
+  report.address_to_count = create_hash();
+  report.addresses = create_vector();
+  
   /** Example output:
      # ========
      # captured on: Tue Jan 17 12:18:22 2017
@@ -366,7 +381,18 @@ static int do_report(const char* filename){
   perf_session__process_events(session, &report.tool);
 
   printf("this piece contains %d samples\n", report.n_samples);
+  printf("Some aggregated samples:\n");
+  {
+    int i;
+    u64* addresses = get_data_from_vector(report.addresses);
+
+    for(i=0; i<5; i++){
+      u64 a = addresses[i];
+      printf("0x%lx: %d\n", a, get_from_hash(report.address_to_count, a));
+    }
+  }
   
+    
   return 0;
 }
 
