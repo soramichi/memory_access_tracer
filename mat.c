@@ -10,7 +10,6 @@
 #include "cache.h"
 
 #include "hash.h"
-#include "vector.h"
 #include "memory_access.h"
 
 // dirt hack. those variables are never used in mat.c but
@@ -315,7 +314,6 @@ struct report {
         // members blow here are added by soramichi
         int                     n_samples;
         void                    *address_to_count;
-        void                    *addresses;
 };
 
 static int compare_memory_access(const void* _a, const void* _b){
@@ -339,9 +337,6 @@ static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
   rec->n_samples++;
   
   count = get_from_hash(rec->address_to_count, sample->addr);
-  if(count == 0){ // this is the first acccess to this address
-    add_to_vector(rec->addresses, sample->addr);
-  }
   add_to_hash(rec->address_to_count, sample->addr, count + 1);
   
   return 0;
@@ -377,7 +372,6 @@ static int do_report(const char* filename){
   session = perf_session__new(&file, false, &report.tool);
   report.session = session;
   report.address_to_count = create_hash();
-  report.addresses = create_vector();
   
   /** Example output:
      # ========
@@ -400,15 +394,6 @@ static int do_report(const char* filename){
     for(i=0; i<5; i++){
       printf("0x%lx: %d\n", memory_access[i].addr, memory_access[i].count);
     }
-
-    /*
-    u64* addresses = get_data_from_vector(report.addresses);
-
-    for(i=0; i<5; i++){
-      u64 a = addresses[i];
-      printf("0x%lx: %d\n", a, get_from_hash(report.address_to_count, a));
-    }
-    */
   }
 
   return 0;

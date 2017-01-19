@@ -5,6 +5,5 @@ CFLAGS="-Wbad-function-cast -Wdeclaration-after-statement -Wformat-security -Wfo
 LIBS_PERF="${LINUX_SRC_DIR}/tools/perf/libperf.a ${LINUX_SRC_DIR}/tools/lib/api/libapikfs.a ${LINUX_SRC_DIR}/tools/lib/traceevent/libtraceevent.a"
 LIBS_STD="-lm -lpthread -ldl"
 
-g++ -std=c++11 -shared -fPIC vector.cpp -o vector.o
 g++ -std=c++11 -shared -fPIC hash.cpp -o hash.o
-gcc -L . vector.o hash.o $CFLAGS mat.c $LIBS_PERF $LIBS_STD -o mat
+gcc -L . hash.o $CFLAGS mat.c $LIBS_PERF $LIBS_STD -o mat
