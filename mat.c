@@ -189,9 +189,6 @@ static int perf_record_config(const char *var, const char *value, void *cb)
 static void* observer(void* arg __attribute__((unused))){
   int written_prev = 0;
   struct record *rec = &record;
-  int fd_in = rec->file.fd; // the file to which the recorder is writing the recorded data
-
-  printf("rec->file.fd: %d\n", rec->file.fd);
   
   for(;;){
     if(written_so_far > written_prev){
@@ -199,6 +196,12 @@ static void* observer(void* arg __attribute__((unused))){
       char* filename;
       void* mem_in;
 
+      // the file to which the recorder is writing the recorded data
+      // cannot be moved outside of for(;;) because rec might not be initizlied then
+      volatile int fd_in = rec->file.fd;
+ 
+      printf("rec->file.fd: %d\n", rec->file.fd);
+      printf("mmap(NULL, %d, PROT_READ, MAP_PRIVATE, %d, 0)\n", written_so_far, fd_in);
       mem_in = mmap(NULL, written_so_far, PROT_READ, MAP_PRIVATE, fd_in, 0);
       if(mem_in ==  MAP_FAILED){
 	perror("mmap(NULL, written_so_far, PROT_READ, MAP_PRIVATE, fd_in, 0)");
