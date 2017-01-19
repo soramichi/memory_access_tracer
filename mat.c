@@ -19,7 +19,6 @@ const char perf_version_string[] = "";
 
 /** shared variable ************************************************************************/
 volatile int written_so_far;
-volatile int read_so_far;
 /*******************************************************************************************/
 
 static char* make_uniq_path(void){
@@ -332,7 +331,6 @@ static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
 
   struct report* rec = container_of(tool, struct report, tool);
   int count;
-  //printf("ip: 0x%lx, addr: 0x%lx\n", sample->ip, sample->addr);
 
   rec->n_samples++;
   
@@ -373,14 +371,6 @@ static int do_report(const char* filename){
   report.session = session;
   report.address_to_count = create_hash();
   
-  /** Example output:
-     # ========
-     # captured on: Tue Jan 17 12:18:22 2017
-     # ========
-     #
-   **/
-  //perf_session__fprintf_info(session, stdout, report.show_full_info);
-
   perf_session__process_events(session, &report.tool);
 
   printf("this piece contains %d samples\n", report.n_samples);
