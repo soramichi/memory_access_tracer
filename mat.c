@@ -11,6 +11,7 @@
 
 #include "hash.h"
 #include "vector.h"
+#include "memory_access.h"
 
 // dirt hack. those variables are never used in mat.c but
 // required by libperf.a (should be removed from perf.c)
@@ -317,6 +318,14 @@ struct report {
         void                    *addresses;
 };
 
+static int compare_memory_access(const void* _a, const void* _b){
+  const struct memory_access* a = (const struct memory_access*)_a;
+  const struct memory_access* b = (const struct memory_access*)_b;
+
+  // sort in the order of the access count
+  return b->count - a->count;
+}
+
 static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
 				union perf_event *event  __attribute__((unused)),
 				struct perf_sample *sample,
@@ -383,16 +392,25 @@ static int do_report(const char* filename){
   printf("this piece contains %d samples\n", report.n_samples);
   printf("Some aggregated samples:\n");
   {
+    struct memory_access* memory_access = get_memory_access(report.address_to_count);
     int i;
+
+    qsort(memory_access, get_size_of_hash(report.address_to_count), sizeof(struct memory_access), compare_memory_access);
+
+    for(i=0; i<5; i++){
+      printf("0x%lx: %d\n", memory_access[i].addr, memory_access[i].count);
+    }
+
+    /*
     u64* addresses = get_data_from_vector(report.addresses);
 
     for(i=0; i<5; i++){
       u64 a = addresses[i];
       printf("0x%lx: %d\n", a, get_from_hash(report.address_to_count, a));
     }
+    */
   }
-  
-    
+
   return 0;
 }
 
