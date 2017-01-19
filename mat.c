@@ -23,7 +23,7 @@ static char* make_uniq_path(void){
   char* ret = (char*)malloc(sizeof(char) * 64);
   int fd;
   
-  sprintf(ret, "/dev/shm/XXXXXX");
+  sprintf(ret, "/dev/shm/perf_XXXXXX");
   fd = mkstemp(ret);
 
   close(fd); // close the file immediately, so that the following processes can open it
