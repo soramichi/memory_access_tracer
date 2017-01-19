@@ -195,6 +195,7 @@ static void* observer(void* arg __attribute__((unused))){
       int fd_out, ret;
       char* filename;
       void* mem_in;
+      volatile int header_data_size_old;
 
       // the file to which the recorder is writing the recorded data
       // cannot be moved outside of for(;;) because rec might not be initizlied then
@@ -213,10 +214,13 @@ static void* observer(void* arg __attribute__((unused))){
       fd_out = open(filename, O_RDWR);
 
       // write the header
+      header_data_size_old = rec->session->header.data_size;
+      rec->session->header.data_size = written_so_far - written_prev;
       perf_session__write_header(rec->session, rec->evlist, fd_out, false);
-
+      rec->session->header.data_size = header_data_size_old;
+      
       // write the data
-      ret = write(fd_out, mem_in, written_so_far - written_prev);
+      ret = write(fd_out, mem_in + written_prev, written_so_far - written_prev);
       if(ret < written_so_far - written_prev){
 	perror("write(fd_out, mem_in, written_so_far - written_prev)");
       }
