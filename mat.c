@@ -188,9 +188,8 @@ static int perf_record_config(const char *var, const char *value, void *cb)
 	return perf_default_config(var, value, cb);
 }
 
-static int do_record(const char* path){
+static int do_record(const char* path, const char* argv[]){
   struct perf_evsel* pos;
-  const char* argv[] = {"/home/soramichi/src/cache_miss/cache_miss", "45", NULL}; 
   int exit_status, ret;
   char msg[512];
   struct perf_session *session;
@@ -477,11 +476,21 @@ static void init(void){
   pthread_create(&tid_observer, NULL, observer, NULL);
 }
 
-int main(void){
+int main(int argc, char* argv[]){
+  int i;
   char* path = make_uniq_path();
 
   // should be done before calling any function in libperf.a
   init();
   
-  do_record(path);
+  if(argc == 1){
+    fprintf(stderr, "usage: %s program [parameters]\n", "run.sh");
+    return -1;
+  }
+  for(i=0; i<argc-1; i++){
+    argv[i] = argv[i+1];
+  }
+  argv[argc-1] = NULL;
+
+  do_record(path, (const char**)argv);
 }
