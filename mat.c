@@ -451,6 +451,8 @@ static void* observer(void* arg __attribute__((unused))){
       written_prev = written_so_far_local;
 
       do_report(filename);
+
+      remove(filename);
     }
 
     usleep(100 * 1000); // wait 500 msec
