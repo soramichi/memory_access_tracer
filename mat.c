@@ -71,7 +71,7 @@ static struct record record = {
 	.opts = {
 		.mmap_pages	     = UINT_MAX,
 		.user_freq	     = UINT_MAX,
-		.user_interval	     = ULLONG_MAX,
+		.user_interval	     = 65000,
 		.freq		     = 4000,
 		.target		     = {
 			.uses_mmap   = true,
@@ -190,7 +190,7 @@ static int perf_record_config(const char *var, const char *value, void *cb)
 
 static int do_record(const char* path){
   struct perf_evsel* pos;
-  const char* argv[] = {"./cache_miss", NULL}; 
+  const char* argv[] = {"/home/soramichi/src/cache_miss/cache_miss", "45", NULL}; 
   int exit_status, ret;
   char msg[512];
   struct perf_session *session;
@@ -327,13 +327,14 @@ static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
 				union perf_event *event  __attribute__((unused)),
 				struct perf_sample *sample,
 				struct perf_evsel *evsel  __attribute__((unused)),
+				//				struct perf_evsel *evsel,
 				struct machine *machine  __attribute__((unused))){
 
   struct report* rec = container_of(tool, struct report, tool);
-  int count;
+  u64 count;
 
   rec->n_samples++;
-  
+
   count = get_from_hash(rec->address_to_count, sample->addr);
   add_to_hash(rec->address_to_count, sample->addr, count + 1);
   
@@ -382,7 +383,7 @@ static int do_report(const char* filename){
     qsort(memory_access, get_size_of_hash(report.address_to_count), sizeof(struct memory_access), compare_memory_access);
 
     for(i=0; i<5; i++){
-      printf("0x%lx: %d\n", memory_access[i].addr, memory_access[i].count);
+      printf("0x%lx: %lu\n", memory_access[i].addr, memory_access[i].count);
     }
   }
 
@@ -481,5 +482,4 @@ int main(void){
   init();
   
   do_record(path);
-  //do_report(path);
 }
