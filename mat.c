@@ -9,8 +9,36 @@
 #include "util/parse-events.h"
 #include "cache.h"
 
+#if defined(__PERF_VERSION_4__)
+#include "util/config.h"
+#endif
+
 #include "hash.h"
 #include "memory_access.h"
+
+static int __mat_parse_events(struct perf_evlist *evlist, const char *str){
+#if defined(__PERF_VERSION_4__)
+  return parse_events(evlist, str, NULL);
+#else
+  return parse_events(evlist, str);
+#endif
+}
+
+static void __mat_perf_evlist__config(struct perf_evlist *evlist, struct record_opts *opts){
+#if defined(__PERF_VERSION_4__)
+  return perf_evlist__config(evlist, opts, NULL);
+#else
+  return perf_evlist__config(evlist, opts);
+#endif
+}
+
+static int __mat_perf_session__process_events(struct perf_session *session, struct perf_tool *tool){
+#if defined(__PERF_VERSION_4__)
+  return perf_session__process_events(session);
+#else
+  return perf_session__process_events(session, tool);
+#endif
+}
 
 // dirt hack. those variables are never used in mat.c but
 // required by libperf.a (should be removed from perf.c)
@@ -212,21 +240,28 @@ static int do_record(const char* path, const char* argv[]){
   
   // set counters
   //parse_events(rec->evlist, "cache-misses:pp");
-  parse_events(rec->evlist, "r20D1:pp");
+  __mat_parse_events(rec->evlist, "r20D1:pp");
   perf_evlist__create_maps(rec->evlist, &unused_target);
-
+  
   // prepare workload
   perf_evlist__prepare_workload(rec->evlist, &unused_target, argv, false, workload_exec_failed_signal);
 
   /** record__open (builtin-record.c) ***************************************/
-  perf_evlist__config(rec->evlist, &rec->opts);
+  __mat_perf_evlist__config(rec->evlist, &rec->opts);
+#if defined(__PERF_VERSION_4__)
+  evlist__for_each_entry(rec->evlist, pos) {
+#else
   evlist__for_each(rec->evlist, pos) {
+#endif
     ret = perf_evsel__open(pos, rec->evlist->cpus, rec->evlist->threads);
     if(ret < 0){
       perf_evsel__open_strerror(pos, NULL, errno, msg, sizeof(msg));
       fprintf(stderr, "%s\n", msg);
       return -1;
     }
+
+    printf("pos->attr.precise_ip: %d\n", pos->attr.precise_ip);
+    pos->attr.precise_ip -= 1; // wtf
   }
   session->evlist = rec->evlist;
   perf_session__set_id_hdr_size(session);
@@ -255,7 +290,11 @@ static int do_record(const char* path, const char* argv[]){
     written_so_far = rec->bytes_written;
 
     if (hits == rec->samples){ // means `reacord__mmap_read_all' didn't read anything, so we poll
+#if defined(__PERF_VERSION_4__)
+      ret = perf_evlist__poll(rec->evlist, -1);
+#else
       ret = poll(rec->evlist->pollfd, rec->evlist->nr_fds, -1);
+#endif
       if(ret < 0)
 	break;
     }
@@ -340,7 +379,9 @@ static int do_report(const char* filename){
   struct report report = {
     .tool = {
       .sample		 = process_sample_event,
+#if !defined(__PERF_VERSION_4__)
       .ordered_samples = true,
+#endif
       .ordering_requires_timestamps = true,
     },
     .max_stack		 = PERF_MAX_STACK_DEPTH,
@@ -362,7 +403,7 @@ static int do_report(const char* filename){
   report.session = session;
   report.address_to_count = create_hash();
   
-  perf_session__process_events(session, &report.tool);
+  __mat_perf_session__process_events(session, &report.tool);
 
   printf("%d samples contained\n", report.n_samples);
   printf("Top 5 mostly accessed addresses:\n");
@@ -376,7 +417,7 @@ static int do_report(const char* filename){
       printf("0x%lx: %lu\n", memory_access[i].addr, memory_access[i].count);
     }
   }
-
+  
   return 0;
 }
 
