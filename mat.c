@@ -259,9 +259,6 @@ static int do_record(const char* path, const char* argv[]){
       fprintf(stderr, "%s\n", msg);
       return -1;
     }
-
-    printf("pos->attr.precise_ip: %d\n", pos->attr.precise_ip);
-    pos->attr.precise_ip -= 1; // wtf
   }
   session->evlist = rec->evlist;
   perf_session__set_id_hdr_size(session);
