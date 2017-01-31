@@ -32,10 +32,12 @@ static void __mat_perf_evlist__config(struct perf_evlist *evlist, struct record_
 #endif
 }
 
-static int __mat_perf_session__process_events(struct perf_session *session, struct perf_tool *tool){
+static int __mat_perf_session__process_events(struct perf_session *session,
 #if defined(__PERF_VERSION_4__)
+					      struct perf_tool *tool __attribute__((unused))){
   return perf_session__process_events(session);
 #else
+  					      struct perf_tool *tool){
   return perf_session__process_events(session, tool);
 #endif
 }
