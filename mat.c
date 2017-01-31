@@ -212,7 +212,7 @@ static int do_record(const char* path, const char* argv[]){
   
   // set counters
   //parse_events(rec->evlist, "cache-misses:pp");
-  parse_events(rec->evlist, "r81D0:pp");
+  parse_events(rec->evlist, "r20D1:pp");
   perf_evlist__create_maps(rec->evlist, &unused_target);
 
   // prepare workload
@@ -274,7 +274,7 @@ static int do_record(const char* path, const char* argv[]){
   printf("rec->bytes_written: %lu\n", rec->bytes_written);
   rec->session->header.data_size += rec->bytes_written;
   perf_session__write_header(rec->session, rec->evlist, rec->file.fd, true);
-  
+
   return 0;
 }
 
