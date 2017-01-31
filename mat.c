@@ -174,8 +174,6 @@ static int record__mmap_read_all(struct record* rec){
 	return -1;
     }
   }
-
-  printf("samples:%ld\n", rec->samples);
   
   if (perf_header__has_feat(&rec->session->header, HEADER_TRACING_DATA))
     ret = record__write(rec, &finished_round_event, sizeof(finished_round_event));
@@ -240,12 +238,6 @@ static int do_record(const char* path, const char* argv[]){
   if(ret < 0)
     return -1;
 
-  // now that evlist is ready for use
-  printf("evlist->nr_fds: %d\n", rec->evlist->nr_fds);
-  printf("evlist->nr_mmaps: %d\n", rec->evlist->nr_mmaps);
-  printf("rec->file.path: %s\n", rec->file.path);
-  printf("rec->file.fd: %d\n", rec->file.fd);
-
   // run the workload
   perf_evlist__start_workload(rec->evlist);
 
@@ -264,7 +256,6 @@ static int do_record(const char* path, const char* argv[]){
 
     if (hits == rec->samples){ // means `reacord__mmap_read_all' didn't read anything, so we poll
       ret = poll(rec->evlist->pollfd, rec->evlist->nr_fds, -1);
-      printf("poll(2) returned with %d\n", ret);
       if(ret < 0)
 	break;
     }
@@ -360,7 +351,7 @@ static int do_report(const char* filename){
     .mode  = PERF_DATA_MODE_READ,
   };
 
-  printf("do_report: %s\n", filename);
+  printf("do_report --------------------------------\n");
   
   perf_config(report__config, &report);
   
@@ -373,8 +364,8 @@ static int do_report(const char* filename){
   
   perf_session__process_events(session, &report.tool);
 
-  printf("this piece contains %d samples\n", report.n_samples);
-  printf("Some aggregated samples:\n");
+  printf("%d samples contained\n", report.n_samples);
+  printf("Top 5 mostly accessed addresses:\n");
   {
     struct memory_access* memory_access = get_memory_access(report.address_to_count);
     int i;
@@ -407,22 +398,16 @@ static void* observer(void* arg __attribute__((unused))){
       // cannot be moved outside of for(;;) because rec might not be initizlied then
       volatile int fd_in = rec->file.fd;
  
-      printf("rec->file.fd: %d\n", rec->file.fd);
-      printf("mmap(NULL, %d, PROT_READ, MAP_PRIVATE, %d, 0)\n", written_so_far_local, fd_in);
       mem_in = mmap(NULL, written_so_far_local, PROT_READ, MAP_PRIVATE, fd_in, 0);
       if(mem_in ==  MAP_FAILED){
 	perror("mmap(NULL, written_so_far_local, PROT_READ, MAP_PRIVATE, fd_in, 0)");
       }
-
-      printf("bytes written so far: %d\n", written_so_far_local);
 
       filename = make_uniq_path();
       fd_out = open(filename, O_RDWR);
 
       // write the header, header.data_size is not yet written?
       perf_session__write_header(rec->session, rec->evlist, fd_out, false);
-
-      printf("header->data_offset: %lu\n", rec->session->header.data_offset);
       
       // write the data
       ret = write(fd_out,
@@ -443,7 +428,6 @@ static void* observer(void* arg __attribute__((unused))){
       rec->session->header.data_size = header_data_size_old;
 
       // done
-      printf("Saved the %lu bytes of data into %s\n", rec->session->header.data_offset + written_so_far_local - written_prev, filename);
       close(fd_out);
       munmap(mem_in, written_so_far_local);
       
