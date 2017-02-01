@@ -158,6 +158,31 @@ static struct record record = {
 };
 /*************************************************************************/
 
+#if defined(__PERF_VERSION_4__)
+static void record__init_features(struct record *rec)
+{
+  struct perf_session *session = rec->session;
+  int feat;
+
+  for (feat = HEADER_FIRST_FEATURE; feat < HEADER_LAST_FEATURE; feat++)
+    perf_header__set_feat(&session->header, feat);
+
+  if (rec->no_buildid)
+    perf_header__clear_feat(&session->header, HEADER_BUILD_ID);
+
+  if (!have_tracepoints(&rec->evlist->entries))
+    perf_header__clear_feat(&session->header, HEADER_TRACING_DATA);
+
+  if (!rec->opts.branch_stack)
+    perf_header__clear_feat(&session->header, HEADER_BRANCH_STACK);
+
+  if (!rec->opts.full_auxtrace)
+    perf_header__clear_feat(&session->header, HEADER_AUXTRACE);
+
+  perf_header__clear_feat(&session->header, HEADER_STAT);
+}
+#endif
+
 static void sig_handler(int sig)
 {
 	if (sig == SIGCHLD)
@@ -269,20 +294,29 @@ static int do_record(const char* path, const char* argv[]){
   char msg[512];
   struct perf_session *session;
   struct record *rec = &record;
-  
+
   // setup filepath for the output
   rec->file.path = path;
-  
+
+  /** cmd_record() starts here **/
   // create boxes for the counters
   rec->evlist = perf_evlist__new();
 
   // load and apply default config
   perf_config(perf_record_config, rec);
-  record_opts__config(&rec->opts);
 
   // add additinal options
   rec->opts.sample_address = true; // sample linear address from PEBS
+
+  ret = perf_evlist__create_maps(rec->evlist, &unused_target);
+  if(ret < 0){
+    fprintf(stderr, "perf_evlist__create_maps returned %d\n", ret);
+  }
+
+  record_opts__config(&rec->opts);
   
+  /** __cmd_record() starts here **/
+ 
   // create a new session
 #if defined(__PERF_VERSION_4__) 
   session = perf_session__new(&rec->file, false, &rec->tool);
@@ -293,14 +327,17 @@ static int do_record(const char* path, const char* argv[]){
     fprintf(stderr, "perf_session__new returned NULL\n");
     exit(-1);
   }
-
   rec->session = session;
-  
+
+#if defined(__PERF_VERSION_4__)
+  record__init_features(rec);
+#endif
+
+  /** record__open() starts here **/
   // set counters
   __mat_parse_events(rec->evlist, "r20D1:pp"); // == parse_options in builtin-record.
- 
-  perf_evlist__create_maps(rec->evlist, &unused_target);
-  
+  /** record__open() ends here **/
+
   // prepare workload
   perf_evlist__prepare_workload(rec->evlist, &unused_target, argv, false, workload_exec_failed_signal);
 
@@ -308,8 +345,13 @@ static int do_record(const char* path, const char* argv[]){
   __mat_perf_evlist__config(rec->evlist, &rec->opts);
 #if defined(__PERF_VERSION_4__)
   evlist__for_each_entry(rec->evlist, pos) {
+  try_again:
     ret = perf_evsel__open(pos, pos->cpus, pos->threads);
     if(ret < 0){
+      ret = perf_evsel__fallback(pos, errno, msg, sizeof(msg));
+      if(ret)
+	goto try_again;
+    
       perf_evsel__open_strerror(pos, NULL, errno, msg, sizeof(msg));
       fprintf(stderr, "%s\n", msg);
       return -1;
@@ -356,6 +398,9 @@ static int do_record(const char* path, const char* argv[]){
     written_so_far = rec->bytes_written;
 
     if (hits == rec->samples){ // means `reacord__mmap_read_all' didn't read anything, so we poll
+      if(done)
+	break;
+
 #if defined(__PERF_VERSION_4__)
       ret = perf_evlist__poll(rec->evlist, -1);
 #else
