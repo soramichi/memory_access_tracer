@@ -18,7 +18,8 @@
 
 static int __mat_parse_events(struct perf_evlist *evlist, const char *str){
 #if defined(__PERF_VERSION_4__)
-  return parse_events(evlist, str, NULL);
+  struct parse_events_error err = { .idx = 0, };
+  return parse_events(evlist, str, &err);
 #else
   return parse_events(evlist, str);
 #endif
@@ -82,6 +83,27 @@ static void workload_exec_failed_signal(int signo __maybe_unused,
 }
 
 /** struct record ********************************************************/
+#if defined(__PERF_VERSION_4__)
+struct record {
+  struct perf_tool        tool;
+  struct record_opts      opts;
+  u64                     bytes_written;
+  struct perf_data_file   file;
+  struct auxtrace_record  *itr;
+  struct perf_evlist      *evlist;
+  struct perf_session     *session;
+  const char              *progname;
+  int                     realtime_prio;
+  bool                    no_buildid;
+  bool                    no_buildid_set;
+  bool                    no_buildid_cache;
+  bool                    no_buildid_cache_set;
+  bool                    buildid_all;
+  bool                    timestamp_filename;
+  bool                    switch_output;
+  unsigned long long      samples;
+};
+#else
 struct record {
 	struct perf_tool	tool;
 	struct record_opts	opts;
@@ -95,19 +117,44 @@ struct record {
 	bool			no_buildid_cache;
 	long			samples;
 };
+#endif
 
 // should be global, which is what builtin-record says :(
 static struct record record = {
-	.opts = {
-		.mmap_pages	     = UINT_MAX,
-		.user_freq	     = UINT_MAX,
-		.user_interval	     = ULLONG_MAX,
-		.freq		     = 4000,
-		.target		     = {
-			.uses_mmap   = true,
-			.default_per_cpu = true,
-		},
-	},
+#if defined(__PERF_VER_4__)
+  .opts = {
+    .sample_time         = true,
+    .mmap_pages          = UINT_MAX,
+    .user_freq           = UINT_MAX,
+    .user_interval       = ULLONG_MAX,
+    .freq                = 4000,
+    .target              = {
+      .uses_mmap   = true,
+      .default_per_cpu = true,
+    },
+    .proc_map_timeout     = 500,
+  },
+  .tool = {
+    .sample         = process_sample_event,
+    .fork           = perf_event__process_fork,
+    .exit           = perf_event__process_exit,
+    .comm           = perf_event__process_comm,
+    .mmap           = perf_event__process_mmap,
+    .mmap2          = perf_event__process_mmap2,
+    .ordered_events = true,
+  },
+#else
+  .opts = {
+    .mmap_pages	     = UINT_MAX,
+    .user_freq	     = UINT_MAX,
+    .user_interval	     = ULLONG_MAX,
+    .freq		     = 4000,
+    .target		     = {
+      .uses_mmap   = true,
+      .default_per_cpu = true,
+    },
+  },
+#endif
 };
 /*************************************************************************/
 
@@ -237,12 +284,21 @@ static int do_record(const char* path, const char* argv[]){
   rec->opts.sample_address = true; // sample linear address from PEBS
   
   // create a new session
+#if defined(__PERF_VERSION_4__) 
+  session = perf_session__new(&rec->file, false, &rec->tool);
+#else
   session = perf_session__new(&rec->file, false, NULL);
+#endif
+  if(session == NULL){
+    fprintf(stderr, "perf_session__new returned NULL\n");
+    exit(-1);
+  }
+
   rec->session = session;
   
   // set counters
-  //parse_events(rec->evlist, "cache-misses:pp");
-  __mat_parse_events(rec->evlist, "r20D1:pp");
+  __mat_parse_events(rec->evlist, "r20D1:pp"); // == parse_options in builtin-record.
+ 
   perf_evlist__create_maps(rec->evlist, &unused_target);
   
   // prepare workload
@@ -252,9 +308,15 @@ static int do_record(const char* path, const char* argv[]){
   __mat_perf_evlist__config(rec->evlist, &rec->opts);
 #if defined(__PERF_VERSION_4__)
   evlist__for_each_entry(rec->evlist, pos) {
+    ret = perf_evsel__open(pos, pos->cpus, pos->threads);
+    if(ret < 0){
+      perf_evsel__open_strerror(pos, NULL, errno, msg, sizeof(msg));
+      fprintf(stderr, "%s\n", msg);
+      return -1;
+    }
+  }
 #else
   evlist__for_each(rec->evlist, pos) {
-#endif
     ret = perf_evsel__open(pos, rec->evlist->cpus, rec->evlist->threads);
     if(ret < 0){
       perf_evsel__open_strerror(pos, NULL, errno, msg, sizeof(msg));
@@ -262,6 +324,7 @@ static int do_record(const char* path, const char* argv[]){
       return -1;
     }
   }
+#endif
   session->evlist = rec->evlist;
   perf_session__set_id_hdr_size(session);
   /**************************************************************************/
@@ -283,7 +346,11 @@ static int do_record(const char* path, const char* argv[]){
   
   // read the counters
   for(;;){
-    int hits = rec->samples;
+#if defined(__PERF_VERSION_4__)
+    unsigned long long hits = rec->samples;
+#else
+    long hits = rec->samples;
+#endif
 
     record__mmap_read_all(rec);
     written_so_far = rec->bytes_written;

@@ -5,6 +5,7 @@ int kvm_entry_event(void);
 int exit_event_begin(void);
 int exit_event_end(void);
 int exit_event_decode_key(void);
+int test__dwarf_unwind(void);
 
 /** defined in builtin-script.o, which should not be linked to libperf.a **/
 int script_spec_register(void){
@@ -34,3 +35,10 @@ int exit_event_decode_key(void){
   return 0;
 }
 /*********************************************************************/
+
+/** defined in tests/dwarf-unwind.o, which should not be linked to libperf.a **/
+int test__dwarf_unwind(void){
+  return 0;
+}
+/******************************************************************************/
+
