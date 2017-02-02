@@ -43,11 +43,6 @@ static int __mat_perf_session__process_events(struct perf_session *session,
 #endif
 }
 
-// dirt hack. those variables are never used in mat.c but
-// required by libperf.a (should be removed from perf.c)
-int use_browser = -1;
-const char perf_version_string[] = "";
-
 /** shared variable ************************************************************************/
 volatile int written_so_far;
 /*******************************************************************************************/

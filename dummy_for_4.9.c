@@ -1,3 +1,9 @@
+// some variables that are referenced by but not included in libperf.a
+// never care the values, as they are not used!
+unsigned int scripting_max_stack = 0;
+int use_browser = -1;
+const char perf_version_string[] = "";
+
 // proto-types. never used. just to surpress warnings.
 int script_spec_register(void);
 int kvm_exit_event(void);
