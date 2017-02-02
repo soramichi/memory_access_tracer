@@ -283,7 +283,7 @@ static int perf_record_config(const char *var, const char *value, void *cb)
 	return perf_default_config(var, value, cb);
 }
 
-static int do_record(const char* path, const char* argv[]){
+static int do_record(const char* path, const char* counters, const char* argv[]){
   struct perf_evsel* pos;
   int exit_status, ret;
   char msg[512];
@@ -330,7 +330,7 @@ static int do_record(const char* path, const char* argv[]){
 
   /** record__open() starts here **/
   // set counters
-  __mat_parse_events(rec->evlist, "r20D1:pp"); // == parse_options in builtin-record.
+  __mat_parse_events(rec->evlist, counters); // == parse_options in builtin-record.
   /** record__open() ends here **/
 
   // prepare workload
@@ -610,18 +610,24 @@ static void init(void){
 int main(int argc, char* argv[]){
   int i;
   char* path = make_uniq_path();
-
+  char* counters;
+  
   // should be done before calling any function in libperf.a
   init();
   
-  if(argc == 1){
-    fprintf(stderr, "usage: %s program [parameters]\n", "run.sh");
+  if(argc < 3){
+    fprintf(stderr, "usage: %s counters program [parameters]\n", "run.sh");
     return -1;
   }
-  for(i=0; i<argc-1; i++){
-    argv[i] = argv[i+1];
-  }
-  argv[argc-1] = NULL;
 
-  do_record(path, (const char**)argv);
+  counters = argv[1];
+
+  // before: argv[comm, counters, program, arg1, arg2, ...]
+  // after : argv[program, arg1, arg2, ..., NULL]
+  for(i=0; i<argc-2; i++){
+    argv[i] = argv[i+2];
+  }
+  argv[argc-2] = NULL;
+
+  do_record(path, counters, (const char**)argv);
 }
