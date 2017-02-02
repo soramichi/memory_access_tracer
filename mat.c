@@ -1,3 +1,4 @@
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -15,6 +16,8 @@
 
 #include "hash.h"
 #include "memory_access.h"
+#include "event_log.h"
+
 
 static int __mat_parse_events(struct perf_evlist *evlist, const char *str){
 #if defined(__PERF_VERSION_4__)
@@ -121,7 +124,7 @@ static struct record record = {
     .sample_time         = true,
     .mmap_pages          = UINT_MAX,
     .user_freq           = UINT_MAX,
-    .user_interval       = ULLONG_MAX,
+    .user_interval       = 100000,
     .freq                = 4000,
     .target              = {
       .uses_mmap   = true,
@@ -437,33 +440,48 @@ struct report {
 	u64			nr_entries;
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
         // members blow here are added by soramichi
-        int                     n_samples;
-        void                    *address_to_count;
+        void* event_logs; // hash{event_name:string -> struct event_log}
 };
 
-static int compare_memory_access(const void* _a, const void* _b){
-  const struct memory_access* a = (const struct memory_access*)_a;
-  const struct memory_access* b = (const struct memory_access*)_b;
+static int compare_pair_by_value(const void* _a, const void* _b){
+  const struct key_value* a = (const struct key_value*)_a;
+  const struct key_value* b = (const struct key_value*)_b;
 
   // sort in the order of the access count
-  return b->count - a->count;
+  return b->value - a->value;
 }
 
 static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
 				union perf_event *event  __attribute__((unused)),
 				struct perf_sample *sample,
-				struct perf_evsel *evsel  __attribute__((unused)),
-				//				struct perf_evsel *evsel,
+				struct perf_evsel *evsel,
 				struct machine *machine  __attribute__((unused))){
 
   struct report* rec = container_of(tool, struct report, tool);
-  u64 count;
-
-  rec->n_samples++;
-
-  count = get_from_hash(rec->address_to_count, sample->addr);
-  add_to_hash(rec->address_to_count, sample->addr, count + 1);
+  const char* event_name = evsel->name;
+  struct event_log* log_this_event;
   
+  // General note for using hash with string keys:
+  //    the key is treated as u64, thus only the pointer value matters.
+  //    For char* s1 = "a" and char* s2 = "b", s1 and s2 are different as keys.
+
+  if(has_key(rec->event_logs, (u64)event_name)){
+    log_this_event = (struct event_log*)get_from_hash(rec->event_logs, (u64)event_name); // a hash value is u64, which is interchangable with any pointer in x64
+  }
+  else{
+    printf("has_key is null for [%s]\n", event_name);
+    log_this_event = (struct event_log*)malloc(sizeof(struct event_log));
+    log_this_event->n_samples = 0;
+    log_this_event->address_to_count = create_hash();
+    add_to_hash(rec->event_logs, (u64)event_name, (u64)log_this_event);
+  }
+
+  log_this_event->n_samples++;
+
+  if(strstr(event_name, ":pp") != NULL){
+    u64 count = get_from_hash(log_this_event->address_to_count, sample->addr);
+    add_to_hash(log_this_event->address_to_count, sample->addr, count + 1);
+  }  
   return 0;
 }
 
@@ -483,25 +501,54 @@ static int do_report(const char* filename){
     },
     .max_stack		 = PERF_MAX_STACK_DEPTH,
     .pretty_printing_style	 = "normal",
-    .n_samples = 0,
   };
   struct perf_data_file file = {
     .mode  = PERF_DATA_MODE_READ,
   };
 
   printf("do_report --------------------------------\n");
-  
   perf_config(report__config, &report);
-  
+
+  // set up the target session to process
   file.path  = filename;
   file.force = report.force;
-
   session = perf_session__new(&file, false, &report.tool);
   report.session = session;
-  report.address_to_count = create_hash();
-  
+
+  // process the collected events
+  report.event_logs = create_hash();
   __mat_perf_session__process_events(session, &report.tool);
 
+  // show the stats
+  {
+    int num_events = get_size_of_hash(report.event_logs);
+    char** event_names = (char**)get_keys(report.event_logs);
+    struct event_log** event_logs = (struct event_log**)get_values(report.event_logs);
+    int i, e;
+
+    for(e=0; e<num_events; e++){
+      char* event_name = event_names[e];
+      struct event_log* log = event_logs[e];
+
+      printf("[%s]\n", event_name);
+
+      // if this is a PEBS event, show DATA_LAs
+      if(strstr(event_name, ":pp") != NULL){
+	struct key_value* list_data_la = get_keys_and_values(log->address_to_count);
+
+	qsort(list_data_la, get_size_of_hash(list_data_la), sizeof(struct key_value), compare_pair_by_value);
+	for(i=0; i<5; i++){
+	  /*
+	  if(i == get_size_of_hash(list_data_la) - 1)
+	    break;
+	  */
+	  printf("0x%lx: %lu\n", list_data_la[i].key, list_data_la[i].value);
+	}
+      }
+    }
+  }
+
+  /*
   printf("%d samples contained\n", report.n_samples);
   printf("Top 5 mostly accessed addresses:\n");
   {
@@ -514,6 +561,7 @@ static int do_report(const char* filename){
       printf("0x%lx: %lu\n", memory_access[i].addr, memory_access[i].count);
     }
   }
+  */
   
   return 0;
 }

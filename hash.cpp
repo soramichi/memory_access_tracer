@@ -2,38 +2,84 @@
 #include <cstdlib>
 #include <typeinfo>
 
-#include "memory_access.h"
+#include "hash.h"
 
 using namespace std;
 
-typedef unsigned long u64;
-typedef map<u64, u64> hash_t
+typedef map<u64, u64> hash_t;
 
 extern "C" void* create_hash(){
   hash_t* ret = new map<u64, u64>();
   return (void*)ret;
 }
 
+extern "C" int has_key(void* _hash, u64 key){
+  hash_t* hash = (map<u64, u64>*)_hash;
+  if(hash == NULL)
+    fprintf(stderr, "hash is NULL (%s:%d)\n", __FILE__, __LINE__);
+  return !!(hash->count(key));
+}
+
 extern "C" void add_to_hash(void* _hash, u64 key, u64 value){
   hash_t* hash = (map<u64, u64>*)_hash;
+  if(hash == NULL)
+    fprintf(stderr, "hash is NULL (%s:%d)\n", __FILE__, __LINE__);
   hash->operator[](key) = value;
 }
 
 extern "C" u64 get_from_hash(void* _hash, u64 key){
   hash_t* hash = (map<u64, u64>*)_hash;
+  if(hash == NULL)
+    fprintf(stderr, "hash is NULL (%s:%d)\n", __FILE__, __LINE__);
   return hash->operator[](key);
 }
 
 extern "C" int get_size_of_hash(void* _hash){
   hash_t* hash = (map<u64, u64>*)_hash;
+  if(hash == NULL)
+    fprintf(stderr, "hash is NULL (%s:%d)\n", __FILE__, __LINE__);
   return hash->size();
 }
 
-extern "C" struct memory_access* get_memory_access(void* _hash){
+// Note: This returns a copy of the keys, which may change after get_keys is called.
+extern "C" u64* get_keys(void* _hash){
+  hash_t* hash = (map<u64, u64>*)_hash;
+  int i = 0;
+  u64* ret;
+
+  if(hash == NULL)
+    fprintf(stderr, "hash is NULL (%s:%d)\n", __FILE__, __LINE__);
+
+  ret = (u64*)malloc(sizeof(u64) * hash->size());
+  for(auto it=hash->begin(); it != hash->end(); it++){
+    ret[i++] = { it->first };
+  }
+
+  return ret;
+}
+
+// Note: This returns a copy of the values, which may change after get_keys is called.
+extern "C" u64* get_values(void* _hash){
+  hash_t* hash = (map<u64, u64>*)_hash;
+  int i = 0;
+  u64* ret;
+
+  if(hash == NULL)
+    fprintf(stderr, "hash is NULL (%s:%d)\n", __FILE__, __LINE__);
+
+  ret = (u64*)malloc(sizeof(u64) * hash->size());
+  for(auto it=hash->begin(); it != hash->end(); it++){
+    ret[i++] = { it->second };
+  }
+
+  return ret;  
+}
+
+extern "C" struct key_value* get_keys_and_values(void* _hash){
   hash_t* hash = (map<u64, u64>*)_hash;
   int i = 0;
   
-  struct memory_access* ret = (struct memory_access*)malloc(sizeof(struct memory_access) * hash->size());
+  struct key_value* ret = (struct key_value*)malloc(sizeof(struct key_value) * hash->size());
 
   for(auto it=hash->begin(); it != hash->end(); it++){
     ret[i++] = { it->first, it->second };
