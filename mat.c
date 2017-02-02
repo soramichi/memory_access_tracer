@@ -129,15 +129,6 @@ static struct record record = {
     },
     .proc_map_timeout     = 500,
   },
-  .tool = {
-    .sample         = process_sample_event,
-    .fork           = perf_event__process_fork,
-    .exit           = perf_event__process_exit,
-    .comm           = perf_event__process_comm,
-    .mmap           = perf_event__process_mmap,
-    .mmap2          = perf_event__process_mmap2,
-    .ordered_events = true,
-  },
 #else
   .opts = {
     .mmap_pages	     = UINT_MAX,
