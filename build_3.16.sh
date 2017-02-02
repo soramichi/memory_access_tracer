@@ -6,4 +6,4 @@ LIBS_PERF="${LINUX_SRC_DIR}/tools/perf/libperf.a ${LINUX_SRC_DIR}/tools/lib/api/
 LIBS_STD="-lm -lpthread -ldl -lelf -lunwind -lunwind-x86_64"
 
 g++ -std=c++11 -shared -fPIC hash.cpp -o hash.o
-gcc -L . hash.o $CFLAGS mat.c $LIBS_PERF $LIBS_STD -o mat
+gcc -L . hash.o $CFLAGS mat.c dummy_for_3.16.c $LIBS_PERF $LIBS_STD -o mat
