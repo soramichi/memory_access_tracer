@@ -468,7 +468,6 @@ static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
     log_this_event = (struct event_log*)get_from_hash(rec->event_logs, (u64)event_name); // a hash value is u64, which is interchangable with any pointer in x64
   }
   else{
-    printf("has_key is null for [%s]\n", event_name);
     log_this_event = (struct event_log*)malloc(sizeof(struct event_log));
     log_this_event->n_samples = 0;
     log_this_event->address_to_count = create_hash();
@@ -529,7 +528,8 @@ static int do_report(const char* filename){
       char* event_name = event_names[e];
       struct event_log* log = event_logs[e];
 
-      printf("[%s]\n", event_name);
+      printf("Stats for counter %s\n", event_name);
+      printf("Number of samples: %d\n", log->n_samples);
 
       // if this is a PEBS event, show DATA_LAs
       if(strstr(event_name, ":pp") != NULL){
@@ -544,6 +544,8 @@ static int do_report(const char* filename){
 	  printf("0x%lx: %lu\n", list_data_la[i].key, list_data_la[i].value);
 	}
       }
+
+      printf("\n");
     }
   }
 
