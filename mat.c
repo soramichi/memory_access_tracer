@@ -439,7 +439,7 @@ struct report {
 	u64			nr_entries;
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
         // members blow here are added by soramichi
-        void* event_logs; // hash{event_name:string -> struct event_log}
+        c_hash event_logs; // hash{event_name:string -> struct event_log}
 };
 
 static int compare_pair_by_value(const void* _a, const void* _b){
@@ -459,7 +459,7 @@ static int process_sample_event(struct perf_tool *tool  __attribute__((unused)),
   struct report* rec = container_of(tool, struct report, tool);
   const char* event_name = evsel->name;
   struct event_log* log_this_event;
-  
+
   // General note for using hash with string keys:
   //    the key is treated as u64, thus only the pointer value matters.
   //    For char* s1 = "a" and char* s2 = "b", s1 and s2 are different as keys.
