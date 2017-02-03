@@ -15,7 +15,6 @@
 #endif
 
 #include "hash.h"
-#include "memory_access.h"
 #include "event_log.h"
 
 
