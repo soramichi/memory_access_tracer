@@ -534,13 +534,13 @@ static int do_report(const char* filename){
       // if this is a PEBS event, show DATA_LAs
       if(strstr(event_name, ":pp") != NULL){
 	struct key_value* list_data_la = get_keys_and_values(log->address_to_count);
+	int num_addresses = get_size_of_hash(log->address_to_count);
 
-	qsort(list_data_la, get_size_of_hash(list_data_la), sizeof(struct key_value), compare_pair_by_value);
-	for(i=0; i<5; i++){
-	  /*
-	  if(i == get_size_of_hash(list_data_la) - 1)
-	    break;
-	  */
+	printf("Number of uniq DATA_LAs: %d\n", num_addresses);
+	printf("Top 5 most often accessed DATA_LAs\n");
+
+	qsort(list_data_la, num_addresses, sizeof(struct key_value), compare_pair_by_value);
+	for(i=0; i<min(5, num_addresses); i++){
 	  printf("0x%lx: %lu\n", list_data_la[i].key, list_data_la[i].value);
 	}
       }
