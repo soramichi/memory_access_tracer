@@ -549,21 +549,6 @@ static int do_report(const char* filename){
     }
   }
 
-  /*
-  printf("%d samples contained\n", report.n_samples);
-  printf("Top 5 mostly accessed addresses:\n");
-  {
-    struct memory_access* memory_access = get_memory_access(report.address_to_count);
-    int i;
-
-    qsort(memory_access, get_size_of_hash(report.address_to_count), sizeof(struct memory_access), compare_memory_access);
-
-    for(i=0; i<5; i++){
-      printf("0x%lx: %lu\n", memory_access[i].addr, memory_access[i].count);
-    }
-  }
-  */
-  
   return 0;
 }
 
