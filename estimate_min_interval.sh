@@ -4,7 +4,7 @@
 PERF="/home/soramichi/src/linux-4.9.4/tools/perf/perf"
 TARGET="/home/soramichi/src/cifar/svm/cifar_svm.py"
 TARGET_ARGS=""
-COUNTERS="r81D0:pp"
+COUNTERS="r20D1:pp"
 
 # never edit those
 PWD_OLD=`pwd` # Note: do not use name $PWD, as it's automatically overwritten by the shell
