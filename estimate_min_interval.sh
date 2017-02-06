@@ -12,5 +12,5 @@ TARGET_DIR=`dirname $TARGET`
 
 cd $TARGET_DIR # in case $TARGET accesses some data or libs with relative paths
 for c in 400000 200000 100000 50000 25000 12500; do
-    $PERF record -c $c -d -e $COUNTERS -o /dev/shm/perf.data.$c -- $TARGET $TARGET_ARGS > $PWD_OLD/$c.log 2>&1
+    $PERF record --no-timestamp -c $c -d -e $COUNTERS -o /dev/shm/perf.data.$c -- $TARGET $TARGET_ARGS > $PWD_OLD/$c.log 2>&1
 done
