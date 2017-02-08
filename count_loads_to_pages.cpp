@@ -1,5 +1,6 @@
 #include <iostream>
 #include <map>
+#include <cstdlib>
 
 using namespace std;
 
@@ -9,7 +10,6 @@ const addr_t page_size = 4096;
 
 int main(void){
   string str;
-  addr_t addr;
   map<addr_t, int> count;
 
   cout << "start aggregating the events" << endl;
