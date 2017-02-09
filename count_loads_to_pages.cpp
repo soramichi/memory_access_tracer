@@ -22,7 +22,7 @@ int main(void){
   map<addr_t, int> count;
   map<addr_t, ip_based_stride> prefetcher;
 
-  cout << "start aggregating the events" << endl;
+  cout << "# start aggregating the events" << endl;
   
   while(getline(cin, str)){
     addr_t addr, ip;
@@ -79,9 +79,9 @@ int main(void){
     }
   }
 
-  cout << "finished aggregating the events" << endl;
-  cout << "page,count" << endl;
-  
+  cout << "# finished aggregating the events" << endl;
+  cout << "# page,count" << endl;
+
   for(auto it = count.begin(); it != count.end(); it++){
     cout << it->first << "," << it->second << endl;
   }
