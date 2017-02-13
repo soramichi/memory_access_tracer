@@ -31,6 +31,10 @@ int main(void){
       ptr++;
     addr = strtoll(ptr, &ptr, 16);
 
+    // inside the kernel, just skip this sample
+    if(addr == 0ull)
+      continue;
+    
     // skip heading spaces
     // after this while, ptr points the second block of characeters,
     // it may be an ip or a data_src encoding depending on the usage
@@ -50,10 +54,6 @@ int main(void){
       ip = strtoll(tail, NULL, 16);
       data_src_encoding = strtol(ptr, NULL, 16);
     }
-
-    // inside the kernel, just skip this sample
-    if(addr == 0ull)
-      continue;
 
     // demand access
     addr_t page = addr / page_size;
