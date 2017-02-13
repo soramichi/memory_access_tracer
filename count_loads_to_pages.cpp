@@ -9,29 +9,47 @@ typedef unsigned long long addr_t;
 
 const addr_t page_size = 4096;
 
-// Usage: perf script -F addr,ip -i perf.data
-// Note that addr and ip are displayed in this order no matter what the order after -F is.
+// Usage 1: perf script -F addr,ip -i perf.data | a.out
+// Usage 2: perf script -F addr,data_src,ip -i perf.data | a.out
+// Note that changing the orders inside -F does not affect.
 // (-F addr,ip and -F ip,addr yield exactly the same output)
 int main(void){
   string str;
-  map<addr_t, int> count_mem;
+  map<addr_t, int> count_mem, count_cache;
 
   cout << "# start aggregating the events" << endl;
   
   while(getline(cin, str)){
     addr_t addr, ip;
+    unsigned int data_src_encoding;
     char* ptr = strdup(str.c_str());
+    char* tail = ptr + strlen(ptr) - 1;
     int index = 0;
 
     // skip heading spaces
     while(*ptr == ' ')
       ptr++;
-    addr = strtoll(ptr+1, &ptr, 16);
+    addr = strtoll(ptr, &ptr, 16);
 
     // skip heading spaces
+    // after this while, ptr points the second block of characeters,
+    // it may be an ip or a data_src encoding depending on the usage
     while(*ptr == ' ')
       ptr++;
-    ip = strtoll(ptr+1, NULL, 16);
+
+    // after this while, tail points the last block of chacaters
+    while(*tail != ' ')
+      tail--;
+
+    // "second block" == "last block", which means the input is useage 1
+    if(ptr == tail){
+      ip = strtoll(ptr, NULL, 16);
+    }
+    // "second block" != "last block", which means the input is useage 2
+    else{
+      ip = strtoll(tail, NULL, 16);
+      data_src_encoding = strtol(ptr, NULL, 16);
+    }
 
     // inside the kernel, just skip this sample
     if(addr == 0ull)
