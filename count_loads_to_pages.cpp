@@ -46,37 +46,6 @@ int main(void){
     // demand access
     addr_t page = addr / page_size;
     count[page]++;
-
-    // prefetch access
-    auto it = prefetcher.find(ip);
-
-    if(it == prefetcher.end()){
-      ip_based_stride stride = { .last = addr, .stride = 0 };
-      prefetcher[ip] = stride;
-      cerr << "initialize a stride" << endl;
-    }
-    else {
-      ip_based_stride* stride = &it->second;
-      int current_stride = addr - stride->last;
-      
-      // current stride matches the last stride, pretetch
-      // (if current_stride is 0, do nothinf as accessing the same address is nonsense)
-      if(stride->stride == current_stride && current_stride != 0){
-	/*
-	// debug print
-	cerr << "find a stride" << endl;
-	cerr << "ip:" << ip << ", addr: " << addr << ", last: " << stride->last << endl;
-	cerr << "current_stride: " << current_stride << ", last_stride: " << stride->stride << endl;
-	*/
-	
-	// addr + current_stride is prefetched,
-	// meaning that this page is accessed again
-	count[page]++;
-      }
-
-      stride->stride = current_stride;
-      stride->last = addr;
-    }
   }
 
   cout << "# finished aggregating the events" << endl;
