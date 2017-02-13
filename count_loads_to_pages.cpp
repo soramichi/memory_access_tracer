@@ -9,18 +9,12 @@ typedef unsigned long long addr_t;
 
 const addr_t page_size = 4096;
 
-struct ip_based_stride{
-  addr_t last;
-  int stride;
-};
-
 // Usage: perf script -F addr,ip -i perf.data
 // Note that addr and ip are displayed in this order no matter what the order after -F is.
 // (-F addr,ip and -F ip,addr yield exactly the same output)
 int main(void){
   string str;
   map<addr_t, int> count;
-  map<addr_t, ip_based_stride> prefetcher;
 
   cout << "# start aggregating the events" << endl;
   
