@@ -14,7 +14,7 @@ const addr_t page_size = 4096;
 // (-F addr,ip and -F ip,addr yield exactly the same output)
 int main(void){
   string str;
-  map<addr_t, int> count;
+  map<addr_t, int> count_mem;
 
   cout << "# start aggregating the events" << endl;
   
@@ -39,13 +39,13 @@ int main(void){
 
     // demand access
     addr_t page = addr / page_size;
-    count[page]++;
+    count_mem[page]++;
   }
 
   cout << "# finished aggregating the events" << endl;
   cout << "# page,count" << endl;
 
-  for(auto it = count.begin(); it != count.end(); it++){
+  for(auto it = count_mem.begin(); it != count_mem.end(); it++){
     cout << it->first << "," << it->second << endl;
   }
 
