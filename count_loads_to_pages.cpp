@@ -24,14 +24,14 @@ int main(void){
     int index = 0;
 
     // skip heading spaces
-    while(ptr[index] == ' ')
-      index++;
-    addr = strtoll(ptr+index, &ptr, 16);
+    while(*ptr == ' ')
+      ptr++;
+    addr = strtoll(ptr+1, &ptr, 16);
 
     // skip heading spaces
-    while(ptr[index] == ' ')
-      index++;
-    ip = strtoll(ptr+index, NULL, 16);
+    while(*ptr == ' ')
+      ptr++;
+    ip = strtoll(ptr+1, NULL, 16);
 
     // inside the kernel, just skip this sample
     if(addr == 0ull)
